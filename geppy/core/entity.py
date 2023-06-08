@@ -436,6 +436,221 @@ class GeneDc(Gene):
         return super().__repr__() + ', rnc_array=[' + ', '.join(str(num) for num in self.rnc_array) + ']'
 
 
+
+# ----------------- RYAN HEMINWAY ADDITION (start) ------------------- #
+
+class GeneNN(Gene):
+    """
+    Class represents a gene with additional Dw and Dt domains to handle weights and thresholds in GEP-NN.
+
+    The basic :class:`Gene`
+    has two domains, a head and a tail, while this :class:`GeneNN` class introduces another two domains called *Dw*
+    and *Dt*, respectively, after the tail. The length of the Dw domain is equal to the length of the head, h, 
+    multiplied by the maximum arity in the function set, n. The length of the Dt domain is the equal to the length 
+    of the head, h. The Dw and Dt domains only store the indices of numbers present in separate arrays :meth:`dw_array`
+    and :meth:`dt_array`, which collect a group of candidate random numerical constants (RNCs). Thus, each :class:`GeneNN` 
+    instance comes with a *dw_array* and a *dt_array*, which are generally different among different instances.
+
+    In addition to the operators of the basic gene expression algorithm (mutation, inversion, transposition, and
+    recombination), NN-specific operators in GEP-NN are also created to better evolve the Dw and Dt domains and to
+    manipulate the attached set of constants *dw_array* and *dt_array*. 
+    
+    Such operators are all suffixed with '_dw' or '_dt' in
+    :mod:`~geppy.tools.crossover` and :mod:`~geppy.tools.mutation` modules, for example, the method
+    :func:`~geppy.tools.mutation.transpose_dw`.  
+
+    The *dw_array* and *dt_array* associated with each :class:`GeneNN` instance can be provided explicitly when creating
+    a :class:`GeneNN` instance. See :meth:`from_genome`. Or more generally, a random number generator *rnc_gen* can be 
+    provided, with which a specified number of RNCs are generated during the creation of gene instances.
+
+    """
+    def __init__(self, pset, head_length, dw_rnc_gen, dw_rnc_array_length, dt_rnc_gen, dt_rnc_array_length):
+        """
+        Initialize a gene with a Dc domain.
+
+        :param head_length: length of the head domain
+        :param pset: a primitive set including functions and terminals for genome construction.
+        :param dw_rnc_gen: callable, which should generate a random number when called by ``dw_rnc_gen()``.
+        :param dw_rnc_array_length: int, number of random numerical constant candidates 
+                associated with this gene's Dw domain, usually 10 is enough
+        :param dt_rnc_gen: callable, which should generate a random number when called by ``dt_rnc_gen()``.
+        :param dt_rnc_array_length: int, number of random numerical constant candidates 
+                associated with this gene's Dt domain, usually 10 is enough
+
+        Supposing the maximum arity of functions in *pset* is *max_arity*, then the tail length is automatically
+        determined to be ``tail_length = head_length * (max_arity - 1) + 1``. The genome, i.e., list of symbols in
+        the instantiated gene is formed randomly from *pset*. The length of Dw domain is equal to (*head_length* * *max_arity*),
+        and the length of the Dt domain is the same as the *head_length*. 
+        """
+        # first generate the gene without Dw or Dt
+        super().__init__(pset, head_length)
+        self._max_arity = pset.max_arity
+        # tail length
+        t = head_length * (pset.max_arity - 1) + 1
+        # length of Dw is h * n, where n is max arity 
+        wLen = head_length * (pset.max_arity)
+        # length of Dt is h
+        tLen = head_length
+        # complement it with a Dw domain and Dt domain
+        self._dw_rnc_gen = dw_rnc_gen
+        dw = generate_dc(dw_rnc_array_length, dc_length=wLen)
+        self.extend(dw)
+        self._dt_rnc_gen = dt_rnc_gen
+        dt = generate_dc(dt_rnc_array_length, dc_length=tLen)
+        self.extend(dt)
+        # generate the rnc arrays
+        self._dw_rnc_array = [self._dw_rnc_gen() for _ in range(dw_rnc_array_length)]
+        self._dt_rnc_array = [self._dt_rnc_gen() for _ in range(dt_rnc_array_length)]
+
+
+    @classmethod
+    def from_genome(cls, genome, head_length, max_arity, dw_rnc_array, dt_rnc_array):
+        """
+        Build a gene directly from the given *genome* and the random numerical constant (RNC) array *rnc_array*.
+
+        :param genome: iterable, a list of symbols representing functions and terminals. This genome should have four
+            domains: head, tail, Dw, and Dt. The Dw and Dt domains should be composed only of integers representing indices into the
+            *dw_rnc_array* and *dt_rnc_array* respectively.
+        :param head_length: length of the head domain. The length of the Dt domain is equal to the head domain. The
+            length of the Dw domain is: ``Dw_length = head_length * max_arity``. The length of the tail can be 
+            determined as: ``tail_length = (len(genome) - (2 * head_length) - (Dw_length))``.
+        :param max_arity: maximum arity in the primitive set for this gene 
+        :param dw_rnc_array: the RNC array associated with the Dw domain of the gene, which contains random constant candidates
+        :param dt_rnc_array: the RNC array associated with the Dt domain of the gene, which contains random constant candidates
+        :return: :class:`GeneNN`, a gene
+        """
+        g = super().from_genome(genome, head_length)  # the genome is copied and the head-length is fixed
+        g._dw_rnc_array = copy.deepcopy(dw_rnc_array)
+        g._dt_rnc_array = copy.deepcopy(dt_rnc_array)
+        return g
+
+    @property
+    def dw_length(self):
+        """
+        Get the length of the Dw domain
+        """
+        return self.head_length * self._max_arity
+    
+    @property
+    def dt_length(self):
+        """
+        Get the length of the Dt domain
+        """
+        return self.head_length
+
+    @property
+    def dw_rnc_array(self):
+        """
+        Get the random numerical array (RNC) associated with this gene's Dw domain.
+        """
+        return self._dw_rnc_array
+    
+    @property
+    def dt_rnc_array(self):
+        """
+        Get the random numerical array (RNC) associated with this gene's Dt domain.
+        """
+        return self._dt_rnc_array
+
+    @property
+    def tail_length(self):
+        """
+        Get the tail domain length.
+        """
+        return (len(self) - self.head_length - self.dt_length - self.dw_length)
+    
+    @property
+    def max_arity(self):
+        """
+        Get the max arity of functions in the primitive set used to build this gene.
+        """
+        return self._max_arity
+
+    @property
+    def dw(self):
+        """
+        Get the Dw domain of this gene.
+        :return:
+        """
+        return self[self.head_length + self.tail_length: self.head_length + self.tail_length + self.dw_length]
+    
+    @property
+    def dt(self):
+        """
+        Get the Dw domain of this gene.
+        :return:
+        """
+        return self[self.head_length + self.tail_length + self.dw_length: len(self)]
+
+    def __str__(self): 
+        """
+        Return the expression in a human readable string. Functions which require
+        weights and thresholds as inputs will have them added, retrieved from
+        Dw and Dt respectively. 
+    
+        :return: string form of the expression
+        """
+        expr = self.kexpression
+        w_i = self.dw_length - 1
+        t_i = self.dt_length - 1
+        i = len(expr) - 1
+        while i >= 0:
+            if expr[i].arity > 0:  # a function
+                f = expr[i]
+                args = []
+                # Pop node inputs
+                for _ in range(f.arity):
+                    ele = expr.pop()
+                    if isinstance(ele, str):
+                        args.append(ele)
+                    else:  # a terminal
+                        args.append(ele.format())
+                        
+                # reverse node inputs before including weights/threshold
+                args = [*(reversed(args))]
+                        
+                # Pop node weights
+                weights = []
+                for _ in range(f.arity):
+                    index = self.dw[w_i]
+                    value = self._dw_rnc_array[index]
+                    weights.append(value)
+                    w_i = w_i - 1
+                args.append(str(weights))
+                
+                # Pop node threshold
+                index = self.dt[t_i]
+                value = self._dt_rnc_array[index]
+                t_i = t_i - 1
+                args.append(str(value))
+                expr[i] = f.format(*args)  # replace the operator with its result (str)
+            i -= 1
+
+        # the final result is at the root
+        if isinstance(expr[0], str):
+            return expr[0]
+        if isinstance(expr[0], RNCTerminal):  # only contains a single RNC, let's retrieve its value
+            return str(self.rnc_array[self.dc[0]])
+        return expr[0].format()    # only contains a normal terminal
+
+    # @property
+    # def kexpression(self):
+    #     """
+    #     Get the K-expression of type :class:`KExpression` represented by this gene.
+        
+    #     (NOTE Ryan Heminway 5/23/23) Expression will not indicate thresholds
+    #     or weights. 
+    #     """
+    #     return Gene.kexpression
+
+    def __repr__(self):
+        return super().__repr__() + ', dw_rnc_array=[' + ', '.join(str(num) for num in self.dw_rnc_array) + ']' + ', dt_rnc_array=[' + ', '.join(str(num) for num in self.dt_rnc_array) + ']' 
+
+
+# ------------------ RYAN HEMINWAY ADDITION (end) -------------------- #
+
+
+
 def _default_linker(*args): 
     return tuple(args)
 

@@ -111,6 +111,198 @@ def mutate_uniform_dc(individual, ind_pb='1p'):
                 g[i] = random.randint(0, len(g.rnc_array) - 1)
     return individual,
 
+# ---------------------------- Ryan Heminway addition (start) --------------- #
+
+def mutate_uniform_dw(individual, ind_pb='1p'):
+    """
+    Dw-specific mutation. This operator changes one index stored in the Dw domain to another index in place. The indices
+    in the Dw domain can later be used to retrieve numerical constants from the gene associated
+    :meth:`~geppy.core.entity.GeneNN.dw_rnc_array`.
+
+    :param individual: :class:`~geppy.core.entity.Chromosome`, a chromosome, which contains genes of type
+        :class:`~geppy.core.entity.GeneNN`
+    :param ind_pb: float or str, default '1p'. Probability of mutating each index/position in the Dw domain. If given
+        in str like 'xp', then `x` point mutations for expected for the Dw domains in total of *individual*. For
+        instance, if there are `d` Dw elements in the whole chromosome, then `1.5p` is equal to `ind_pb = 1.5 / d`.
+    :return: a tuple of one chromosome
+
+    It is typical to set a mutation rate *indpb* equivalent to two one-point mutations per chromosome. That is,
+    ``indpb = 2 / len(chromosome) * len(gene)``.
+    """
+    if isinstance(ind_pb, str):
+        assert ind_pb.endswith('p'), "ind_pb must end with 'p' if given in a string form"
+        ind_pb = float(ind_pb.rstrip('p')) / (individual[0].dw_length * len(individual))
+    # change the position in the Dw domain to another one
+    for g in individual:  # g: GeneNN
+        start = g.head_length + g.tail_length
+        end = start + g.dw_length
+        for i in range(start, end):
+            if random.random() < ind_pb:
+                g[i] = random.randint(0, len(g.dw_rnc_array) - 1)
+    return individual,
+
+def mutate_uniform_dt(individual, ind_pb='1p'):
+    """
+    Dt-specific mutation. This operator changes one index stored in the Dt domain to another index in place. The indices
+    in the Dt domain can later be used to retrieve numerical constants from the gene associated
+    :meth:`~geppy.core.entity.GeneNN.dt_rnc_array`.
+
+    :param individual: :class:`~geppy.core.entity.Chromosome`, a chromosome, which contains genes of type
+        :class:`~geppy.core.entity.GeneNN`
+    :param ind_pb: float or str, default '1p'. Probability of mutating each index/position in the Dt domain. If given
+        in str like 'xp', then `x` point mutations for expected for the Dt domains in total of *individual*. For
+        instance, if there are `d` Dw elements in the whole chromosome, then `1.5p` is equal to `ind_pb = 1.5 / d`.
+    :return: a tuple of one chromosome
+
+    It is typical to set a mutation rate *indpb* equivalent to two one-point mutations per chromosome. That is,
+    ``indpb = 2 / len(chromosome) * len(gene)``.
+    """
+    if isinstance(ind_pb, str):
+        assert ind_pb.endswith('p'), "ind_pb must end with 'p' if given in a string form"
+        ind_pb = float(ind_pb.rstrip('p')) / (individual[0].dt_length * len(individual))
+    # change the position in the Dw domain to another one
+    for g in individual:  # g: GeneNN
+        start = g.head_length + g.tail_length + g.dw_length
+        end = start + g.dt_length
+        for i in range(start, end):
+            if random.random() < ind_pb:
+                g[i] = random.randint(0, len(g.dt_rnc_array) - 1)
+    return individual,
+
+def transpose_dw(individual):
+    """
+    This operator randomly chooses the chromosome, the gene with its respective Dw to be subjected to transposition,
+    the start and termination points of the transposon, and the target site; then it inserts a copy of the transposon
+    from the place of origin to the target site, while the old content at the target site are shifted to the right
+    and the length of the Dw domain is maintained.
+
+    :param individual: :class:`~geppy.core.entity.Chromosome`, a chromosome, which contains genes of type
+        :class:`~geppy.core.entity.GeneNN`
+    :return: a tuple of one individual
+
+    Typically, a small transposition rate of 0.1 is used. Note that a transposon from one gene's Dw may be copied and
+    inserted into another gene's Dw, which means the genes in a multigenic chromosome *individual*
+    must have an identical structure.
+    """
+    donor, donee, i, j = _choose_donor_donee(individual)
+    dw_start = donor.head_length + donor.tail_length
+    dw_end = donor.head_length + donor.tail_length + donor.dw_length - 1  # included
+    # choose a transposon from the donor Dw
+    t_start, t_end = _choose_subsequence_indices(dw_start, dw_end, max_length=5)
+    # choose the insertion point in donee Dw
+    insertion_pos = random.randint(dw_start, dw_end - (t_end - t_start))
+    # Only affects Dw... Dt is left alone 
+    donee[:] = donee[:insertion_pos] + donor[t_start: t_end + 1] \
+               + donee[insertion_pos: dw_end - (t_end - t_start)] + donee[-donee.dt_length:]
+    if _DEBUG:
+        print('Dw transpose: g{}[{}:{}] -> g{}[{}] (both included)'.format(i, t_start, t_end, j, insertion_pos))
+    return individual,
+
+def transpose_dt(individual):
+    """
+    This operator randomly chooses the chromosome, the gene with its respective Dt to be subjected to transposition,
+    the start and termination points of the transposon, and the target site; then it inserts a copy of the transposon
+    from the place of origin to the target site, while the old content at the target site are shifted to the right
+    and the length of the Dt domain is maintained.
+
+    :param individual: :class:`~geppy.core.entity.Chromosome`, a chromosome, which contains genes of type
+        :class:`~geppy.core.entity.GeneNN`
+    :return: a tuple of one individual
+
+    Typically, a small transposition rate of 0.1 is used. Note that a transposon from one gene's Dt may be copied and
+    inserted into another gene's Dt, which means the genes in a multigenic chromosome *individual*
+    must have an identical structure.
+    """
+    donor, donee, i, j = _choose_donor_donee(individual)
+    dt_start = donor.head_length + donor.tail_length + donor.dw_length
+    dt_end = dt_start + donor.dt_length - 1  # included
+    # choose a transposon from the donor Dt
+    t_start, t_end = _choose_subsequence_indices(dt_start, dt_end, max_length=3)
+    # choose the insertion point in donee Dt
+    insertion_pos = random.randint(dt_start, dt_end - (t_end - t_start))
+    donee[:] = donee[:insertion_pos] + donor[t_start: t_end + 1] \
+               + donee[insertion_pos: len(donee) - (t_end - t_start + 1)]
+    if _DEBUG:
+        print('Dw transpose: g{}[{}:{}] -> g{}[{}] (both included)'.format(i, t_start, t_end, j, insertion_pos))
+    return individual,
+
+
+def mutate_rnc_array_dw(individual, rnc_gen, ind_pb='1p'):
+    """
+    Direct mutation of weight RNCs, which changes the values in a gene's RNC array
+    :meth:`~geppy.core.entity.GeneNN.dw_rnc_array` randomly.
+
+    :param individual: :class:`~geppy.core.entity.Chromosome`, a chromosome, which contains genes of type
+        :class:`~geppy.core.entity.GeneNN`.
+    :param rnc_gen: callable, which returns a random numerical constant by calling ``rnc_gen()``.
+    :param ind_pb: float or str, default '1p'. Use a float number to specify the probability of each RNC in the array
+        being mutated. Alternatively, if a str ending with 'p' is given in the form like 'xp',  where
+        'x' is a numerical number, then it specifies how many point mutations are expected for the RNC arrays
+        in *individual*. For example, if there are *d* RNCs inside the arrays in total in *individual*,
+        then '1.5p' is approximately equal to `ind_pb = 1.5 / d`.
+    :return: a tuple of one individual
+
+    The genetic operators :func:`mutate_uniform_dw`, :func:`transpose_dw` and :func:`invert_dw` actually only move the
+    random numerical constants around without generating new numerical values. This method :func:`mutate_rnc_array_dw`
+    can replace the value of a particular numerical constant by another in the
+    :meth:`~geppy.core.entity.GeneNN.dw_rnc_array`.
+
+    Refer to section 5.4.4 of [FC2006]_ for more details.
+    """
+    if isinstance(ind_pb, str):
+        assert ind_pb.endswith('p'), "ind_pb must end with 'p' if given in a string form"
+        n_rnc_total = len(individual[0].dw_rnc_array) * len(individual)
+        if n_rnc_total == 0:
+            return individual,
+        ind_pb = float(ind_pb.rstrip('p')) / n_rnc_total
+
+    for g in individual:
+        for i in range(len(g.dw_rnc_array)):
+            if random.random() < ind_pb:
+                g.dw_rnc_array[i] = rnc_gen()
+    return individual,
+
+def mutate_rnc_array_dt(individual, rnc_gen, ind_pb='1p'):
+    """
+    Direct mutation of weight RNCs, which changes the values in a gene's RNC array
+    :meth:`~geppy.core.entity.GeneNN.dt_rnc_array` randomly.
+
+    :param individual: :class:`~geppy.core.entity.Chromosome`, a chromosome, which contains genes of type
+        :class:`~geppy.core.entity.GeneNN`.
+    :param rnc_gen: callable, which returns a random numerical constant by calling ``rnc_gen()``.
+    :param ind_pb: float or str, default '1p'. Use a float number to specify the probability of each RNC in the array
+        being mutated. Alternatively, if a str ending with 'p' is given in the form like 'xp',  where
+        'x' is a numerical number, then it specifies how many point mutations are expected for the RNC arrays
+        in *individual*. For example, if there are *d* RNCs inside the arrays in total in *individual*,
+        then '1.5p' is approximately equal to `ind_pb = 1.5 / d`.
+    :return: a tuple of one individual
+
+    The genetic operators :func:`mutate_uniform_dt`, :func:`transpose_dt` and :func:`invert_dt` actually only move the
+    random numerical constants around without generating new numerical values. This method :func:`mutate_rnc_array_dt`
+    can replace the value of a particular numerical constant by another in the
+    :meth:`~geppy.core.entity.GeneNN.dt_rnc_array`.
+
+    Refer to section 5.4.4 of [FC2006]_ for more details.
+    """
+    if isinstance(ind_pb, str):
+        assert ind_pb.endswith('p'), "ind_pb must end with 'p' if given in a string form"
+        n_rnc_total = len(individual[0].dt_rnc_array) * len(individual)
+        if n_rnc_total == 0:
+            return individual,
+        ind_pb = float(ind_pb.rstrip('p')) / n_rnc_total
+
+    for g in individual:
+        for i in range(len(g.dt_rnc_array)):
+            if random.random() < ind_pb:
+                g.dt_rnc_array[i] = rnc_gen()
+    return individual,
+
+# -------------------------- Ryan Heminway addition (end) ------------------- #
+
+
+
+
+
 
 def invert(individual):
     """
@@ -171,7 +363,7 @@ def is_transpose(individual):
     Typically, the IS transposition rate is set around 0.1.
     """
     donor, donee, i1, i2 = _choose_donor_donee(individual)
-    a, b = _choose_subsequence_indices(0, donor.head_length + donor.tail_length - 1, max_length=donee.head_length - 1)
+    a, b = _choose_subsequence_indices(0, donor.head_length + donor.tail_length - 1, max_length=1) # donee.head_length - 1)
     is_start, is_end = a, b + 1
     is_ = donor[is_start: is_end]
     insertion_pos = random.randint(1, donee.head_length - len(is_))
@@ -205,7 +397,7 @@ def ris_transpose(individual):
             continue
         ris_start = random.choice(function_indices)
         # determine the length randomly
-        length = random.randint(2, min(donee.head_length, donor.head_length + donor.tail_length - ris_start))
+        length = 1 # random.randint(2, min(donee.head_length, donor.head_length + donor.tail_length - ris_start))
         # insert ris at the root of donee
         ris = donor[ris_start: ris_start + length]
         donee[:] = ris + donee[0: donee.head_length - length] + donee[donee.head_length:]

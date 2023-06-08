@@ -49,5 +49,4 @@ def compile_(individual, pset):
             return lambda *x: tuple((f(*x) for f in fs))
     return lambda *x: linker(*(f(*x) for f in fs))
 
-
 __all__ = ['compile_']

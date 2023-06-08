@@ -132,7 +132,54 @@ class Function(Primitive):
         assert len(args) == self.arity, "Function {} requires {} arguments while {} are provided.".format(
             self.name, self.arity, len(*args))
         return self._seq.format(*args)
+    
+# ------------------------- Ryan Heminway addition (start) ------------------ #
+    
+class NN_Function(Function):
+    """
+    Class that encapsulates a neural network node (function) in GEP-NN. Note that this class 
+    only stores the function ID, i.e., the *name* attribute instead of the callable function 
+    itself. On the other hand, the underlying callable is retrieved somewhere else when needed, 
+    for example, from :class:`PrimitiveSet`. Thus, in the whole GEP-NN program the provided 
+    name for each function must be unique.
+    """
 
+    def __init__(self, name, arity):
+        """
+        Initialize a neural network node. It is always assumed that this function
+        will be capable of accepting two more arguments than its specified arity. 
+        The additional arguments are placeholders for "weights" and "threshold"
+        respectively.
+
+        :param name: str, name of the function, must be valid non-keyword Python identifier
+        :param arity: int, arity of the function
+        """
+        assert _is_nonkeyword_identifier(name), \
+            'Name of a function must be a valid non-keyword Python identifier'
+        super().__init__(name, arity)
+        args = ', '.join('{{{}}}'.format(index)
+                         for index in range(arity + 2))  # like '{0}, {1}, {2}'
+        self._seq = name + '(' + args + ')'  # e.g., add, --> 'add({0}, {1})'
+
+    def format(self, *args):
+        """
+        Insert the arguments *args* into the function and get a Python statement to call the functions with the
+        arguments in a string form. This returned string can afterwards by evaluated using the builtin
+        :func:`eval` function.
+
+        >>> f = Function('add', 2)
+        >>> f.format(2, 10)
+        'add(2, 10)'
+
+        :param args: arguments, whose number should be equal to the arity of this function
+        :return: str, a string form of function calling with arguments
+        """
+        assert len(args) == (self.arity + 2), "Function {} requires {} inputs plus weights and a threshold for a total of {} arguments while {} are provided.".format(
+            self.name, self.arity, self.arity + 2, len(*args))
+        return self._seq.format(*args)
+
+# ------------------------- Ryan Heminway addition (end) ------------------ #
+    
 
 class Terminal(Primitive):
     """
@@ -362,7 +409,25 @@ class PrimitiveSet:
         function_ = Function(name, arity)
         self._functions.append(function_)
         self._globals[name] = func
+    
+    # -------------------- Ryan Heminway addition (start) ------------------- #
+    def add_nn_function(self, func, arity, name=None):
+        """
+        Add a NN node function, which is internally encapsulated as a :class:`NN_Function` object.
 
+        :param func: callable
+        :param arity: number of inputs expected by *func* node
+        :param name: name of *func*, default ``None``.
+            If remaining ``None``, then the ``func.__name__`` attribute is used instead.
+        """
+        if name is None:
+            name = func.__name__
+        self._assert_name_unique(name)
+        function_ = NN_Function(name, arity)
+        self._functions.append(function_)
+        self._globals[name] = func
+    # -------------------- Ryan Heminway addition (end) --------------------- #
+        
     def add_constant_terminal(self, value):
         """
         Add a terminal which is a constant.
