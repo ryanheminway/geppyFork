@@ -113,6 +113,42 @@ def mutate_uniform_dc(individual, ind_pb='1p'):
 
 # ---------------------------- Ryan Heminway addition (start) --------------- #
 
+def mutate_uniform_save_head(individual, pset, ind_pb='2p'):
+    """
+    Uniform point mutation. For each symbol (primitive) in *individual*, change it to another randomly chosen symbol
+    from *pset* with the probability *indpb*. A symbol may be a function or a terminal. The unique aspect
+    of this method is that symbols in the HEAD must always be a function. This method for mutation maintains
+    this rule. 
+
+    :param individual: :class:`~geppy.core.entity.Chromosome`, the chromosome to be mutated.
+    :param pset: :class:`~geppy.core.entity.PrimitiveSet`, a primitive set
+    :param ind_pb: float or str, default '2p'. Probability of mutating each symbol.
+        If *ind_pb* is given as a string ending with 'p',
+        then it indicates the expected number of point mutations among all the symbols in *individual*. For example,
+        if the total length of each gene of *individual* is `l` and there are `m` genes in total, then by passing
+        `ind_pb='1.5p'` we specify approximately `ind_pb=1.5/(l*m)`.
+    :return: A tuple of one chromosome
+
+    It is typical to set a mutation rate *indpb* equivalent to two one-point mutations per chromosome. That is,
+    ``indpb = 2 / len(chromosome) * len(gene)``.
+    """
+    if isinstance(ind_pb, str):
+        assert ind_pb.endswith('p'), "ind_pb must end with 'p' if given in a string form"
+        length = individual[0].head_length + individual[0].tail_length
+        ind_pb = float(ind_pb.rstrip('p')) / (len(individual) * length)
+    for gene in individual:
+        # mutate the gene with the associated pset
+        # head: any symbol can be changed into a function or a terminal
+        for i in range(gene.head_length):
+            if random.random() < ind_pb:
+                # Only choose from functions 
+                gene[i] = _choose_function(pset)
+        # tail: only change to another terminal
+        for i in range(gene.head_length, gene.head_length + gene.tail_length):
+            if random.random() < ind_pb:
+                gene[i] = _choose_terminal(pset)
+    return individual,
+
 def mutate_uniform_dw(individual, ind_pb='1p'):
     """
     Dw-specific mutation. This operator changes one index stored in the Dw domain to another index in place. The indices

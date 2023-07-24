@@ -51,14 +51,20 @@ def _graph_kexpression_nn(expr, starting_index, weights):
     :return: A node list, an edge list, and a dictionary of labels.
     """
     assert len(expr) > 0
-    nodes = [starting_index + i for i in range(len(expr))]
+    nodes = [] # [starting_index + i for i in range(len(expr))]
     edges = []
+    input_nodes = {}
     labels = {}
     for i, p in enumerate(expr):
         if isinstance(p, Function):
+            nodes.append(starting_index + i)
             labels[starting_index + i] = p.name
         elif isinstance(p, Terminal):
-            labels[starting_index + i] = p.format()
+            name = p.format()
+            if name not in input_nodes:
+                nodes.append(starting_index + i)
+                input_nodes[name] = starting_index + i
+                labels[starting_index + i] = name
         else:
             raise RuntimeError('Unrecognized symbol. Normally, a symbol in the K-expression is either a function '
                                'or a terminal')
@@ -66,10 +72,17 @@ def _graph_kexpression_nn(expr, starting_index, weights):
     j = 0
     last_j = 0
     while i < len(expr):
+        # (NOTE Ryan) Indexing here is tough... normally weights are distributed right-to-left but its opposite here
         for k in range(expr[i].arity):
             j += 1
-            # (NOTE Ryan) Indexing here is tough... normally weights are distributed right-to-left but its opposite here
-            edges.append((i + starting_index, j + starting_index, weights[len(weights) - (len(expr) - 1) + last_j + (expr[i].arity - k - 1)]))
+            p = expr[j]
+            # Make input_nodes unique
+            if isinstance(p, Terminal):
+                name = p.format()
+                # i + starting_index, input_nodes[name]
+                edges.append((input_nodes[name], i + starting_index, weights[len(weights) - (len(expr) - 1) + last_j + (expr[i].arity - k - 1)]))
+            else: 
+                edges.append((j + starting_index, i + starting_index, weights[len(weights) - (len(expr) - 1) + last_j + (expr[i].arity - k - 1)]))
         i += 1
         last_j = j
     return nodes, edges, labels
@@ -119,7 +132,7 @@ def graph_nn(genome, label_renaming_map=None):
             # connect subtrees by inserting the linker node as 0
             nodes.append(0)
             for root in sub_roots:
-                edges.append((0, root, 1)) # (NOTE Ryan) Assuming linking functions use weights of 1
+                edges.append((root, 0, 1)) # (NOTE Ryan) Assuming linking functions use weights of 1
             labels[0] = genome.linker.__name__
     else:
         raise TypeError('Only an argument of type KExpression, Gene, and Chromosome is acceptable. The provided '
@@ -155,15 +168,18 @@ def export_expression_tree_nn(genome, label_renaming_map=None, file='tree.png'):
     _, edges, labels = graph_nn(genome, label_renaming_map)
     file_name, ext = os.path.splitext(file)
     ext = ext.lstrip('.')
-    g = gv.Graph(format=ext)
+    # Make 2 graphs, one with labels
+    g = gv.Digraph(format=ext, engine='dot', graph_attr={'splines': 'ortho'})
+    g2 = gv.Digraph(format=ext, engine='dot', graph_attr={'splines': 'ortho'})
     for name, label in labels.items():
         g.node(str(name), str(label))  # add node
+        g2.node(str(name), str(label))
     for name1, name2, label in edges:
-        g.edge(str(name1), str(name2), label=str(label))  # add edge
+        g.edge(str(name1), str(name2), xlabel="", dir="Forward")  # add edge
+        g2.edge(str(name1), str(name2), xlabel=str(label), dir="Forward")  # add edge
     g.render(file_name)    
-
-# ------------------------ Ryan Heminway addition (end) ----------------- #
-
+    file_name_labels = file_name + "_labeled"
+    g2.render(file_name_labels)
 # ------------------------ Ryan Heminway addition (end) ----------------- #
 
 

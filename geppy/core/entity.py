@@ -135,7 +135,8 @@ class Gene(list):
     """
     A single gene in GEP, which is a fixed-length linear sequence composed of functions and terminals.
     """
-    def __init__(self, pset, head_length):
+    # TODO (Ryan Heminway) added guided here
+    def __init__(self, pset, head_length, guided=False):
         """
         Instantiate a gene.
         :param head_length: length of the head domain
@@ -146,7 +147,7 @@ class Gene(list):
         the instantiated gene is formed randomly from *pset*.
         """
         self._head_length = head_length
-        genome = generate_genome(pset, head_length)
+        genome = generate_genome(pset, head_length, guided)
         list.__init__(self, genome)
 
     @classmethod
@@ -464,7 +465,7 @@ class GeneNN(Gene):
     provided, with which a specified number of RNCs are generated during the creation of gene instances.
 
     """
-    def __init__(self, pset, head_length, dw_rnc_gen, dw_rnc_array_length, dt_rnc_gen, dt_rnc_array_length):
+    def __init__(self, pset, head_length, dw_rnc_gen, dw_rnc_array_length, dt_rnc_gen, dt_rnc_array_length, func_head):
         """
         Initialize a gene with a Dc domain.
 
@@ -476,6 +477,7 @@ class GeneNN(Gene):
         :param dt_rnc_gen: callable, which should generate a random number when called by ``dt_rnc_gen()``.
         :param dt_rnc_array_length: int, number of random numerical constant candidates 
                 associated with this gene's Dt domain, usually 10 is enough
+        :pararm func_head: boolean, indicating whether head should only contain Functions
 
         Supposing the maximum arity of functions in *pset* is *max_arity*, then the tail length is automatically
         determined to be ``tail_length = head_length * (max_arity - 1) + 1``. The genome, i.e., list of symbols in
@@ -483,7 +485,7 @@ class GeneNN(Gene):
         and the length of the Dt domain is the same as the *head_length*. 
         """
         # first generate the gene without Dw or Dt
-        super().__init__(pset, head_length)
+        super().__init__(pset, head_length, func_head)
         self._max_arity = pset.max_arity
         # tail length
         t = head_length * (pset.max_arity - 1) + 1

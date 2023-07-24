@@ -8,7 +8,7 @@ from gepnnSandbox import *
 from dill_utils import map_with_dill
 
 if __name__ ==  '__main__':
-    iters = 100
+    iters = 4
     successes = map_with_dill(runGEPNN, range(iters))
     success_total = sum(successes)
 

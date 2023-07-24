@@ -104,6 +104,12 @@ def gep_simple(population, toolbox, n_generations=100, n_elites=1,
         if hall_of_fame is not None:
             hall_of_fame.update(population)
         record = stats.compile(population) if stats else {}
+        
+        # ----------------------- (ADDED Ryan Heminway START) -------------------- #
+        # Add, as an object, the best individual so far
+        logbook.record(best_ind=hall_of_fame[0])
+        # ----------------------- (ADDED Ryan Heminway END) -------------------- #
+        
         logbook.record(gen=gen, nevals=len(invalid_individuals), **record)
         if verbose:
             print(logbook.stream)

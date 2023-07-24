@@ -18,8 +18,6 @@ from geppy.support.visualization import *
 # (NOTE Ryan) did not edit deap 
 from deap import creator, base, tools
 
-from gepnnFunctions import *
-
 # # Make a folder for the run
 from pathlib import Path
 import time
@@ -35,6 +33,110 @@ import torch
 
 # REQUIRED TO AVOID GRAPHVIZ ERRORS
 os.environ["PATH"] += os.pathsep + 'C:/Program Files/Graphviz/bin'
+
+# -------------------- Function Set Definitions (start) --------------------- #
+def binary_thresh(activation, threshold=1.0):
+    return (activation > threshold).float()
+
+def sigmoid(activation, threshold=1.0):
+    return torch.sigmoid(activation)
+
+def tanh(activation, threshold=1.0):
+    return torch.tanh(activation)
+
+def relu(activation, threshold=1.0):
+    return torch.relu(activation)
+
+def base_neuron_fn(in_tensor, w_tensor, threshold, activation="binary-thresh"):
+    """
+    Basic neuron functionality: dot product between inputs and weights, with
+    activation function applied to the result. Expects inputs and weights 
+    arguments to be given as PyTorch tensors.
+    """
+    activations = { 'binary-thresh' : binary_thresh,
+                    'sigmoid' : sigmoid,
+                    'tanh' : tanh,
+                    'relu' : relu,
+                 }
+    act = torch.dot(in_tensor, w_tensor)
+    act_fun = activations[activation]
+    return act_fun(act, threshold)
+
+def D_relu(in1, in2, weights=[1.0,1.0], threshold=1.0):
+    in_tensor = torch.cat((in1.reshape(1), in2.reshape(1)), 0)
+    weights_tensor = torch.tensor(weights, dtype=torch.float)
+    return base_neuron_fn(in_tensor, weights_tensor, threshold, "relu")
+    
+def T_relu(in1, in2, in3, weights=[1.0,1.0,1.0], threshold=1.0):
+    in_tensor = torch.cat((in1.reshape(1), in2.reshape(1), in3.reshape(1)), 0)
+    weights_tensor = torch.tensor(weights, dtype=torch.float)
+    return base_neuron_fn(in_tensor, weights_tensor, threshold, "relu")
+
+def Q_relu(in1, in2, in3, in4, weights=[1.0,1.0,1.0,1.0], threshold=1.0):
+    in_tensor = torch.cat((in1.reshape(1), in2.reshape(1), in3.reshape(1), in4.reshape(1)), 0)
+    weights_tensor = torch.tensor(weights, dtype=torch.float)
+    return base_neuron_fn(in_tensor, weights_tensor, threshold, "relu")
+
+def D_tanh(in1, in2, weights=[1.0,1.0], threshold=1.0):
+    in_tensor = torch.cat((in1.reshape(1), in2.reshape(1)), 0)
+    weights_tensor = torch.tensor(weights, dtype=torch.float)
+    return base_neuron_fn(in_tensor, weights_tensor, threshold, "tanh")
+    
+def T_tanh(in1, in2, in3, weights=[1.0,1.0,1.0], threshold=1.0):
+    in_tensor = torch.cat((in1.reshape(1), in2.reshape(1), in3.reshape(1)), 0)
+    weights_tensor = torch.tensor(weights, dtype=torch.float)
+    return base_neuron_fn(in_tensor, weights_tensor, threshold, "tanh")
+
+def Q_tanh(in1, in2, in3, in4, weights=[1.0,1.0,1.0,1.0], threshold=1.0):
+    in_tensor = torch.cat((in1.reshape(1), in2.reshape(1), in3.reshape(1), in4.reshape(1)), 0)
+    weights_tensor = torch.tensor(weights, dtype=torch.float)
+    return base_neuron_fn(in_tensor, weights_tensor, threshold, "tanh")
+
+def D_sigmoid(in1, in2, weights=[1.0,1.0], threshold=1.0):
+    in_tensor = torch.cat((in1.reshape(1), in2.reshape(1)), 0)
+    weights_tensor = torch.tensor(weights, dtype=torch.float)
+    return base_neuron_fn(in_tensor, weights_tensor, threshold, "sigmoid")
+    
+def T_sigmoid(in1, in2, in3, weights=[1.0,1.0,1.0], threshold=1.0):
+    in_tensor = torch.cat((in1.reshape(1), in2.reshape(1), in3.reshape(1)), 0)
+    weights_tensor = torch.tensor(weights, dtype=torch.float)
+    return base_neuron_fn(in_tensor, weights_tensor, threshold, "sigmoid")
+
+def Q_sigmoid(in1, in2, in3, in4, weights=[1.0,1.0,1.0,1.0], threshold=1.0):
+    in_tensor = torch.cat((in1.reshape(1), in2.reshape(1), in3.reshape(1), in4.reshape(1)), 0)
+    weights_tensor = torch.tensor(weights, dtype=torch.float)
+    return base_neuron_fn(in_tensor, weights_tensor, threshold, "sigmoid")
+
+def nn_add(in1, in2, weights=[1.0, 1.0], threshold=1.0):
+    a1 = in1 * weights[0]
+    a2 = in2 * weights[1]
+    return a1 + a2
+
+def nn_sub(in1, in2, weights=[1.0, 1.0], threshold=1.0):
+    a1 = in1 * weights[0]
+    a2 = in2 * weights[1]
+    return a1 - a2
+
+def nn_mult(in1, in2, weights=[1.0, 1.0], threshold=1.0):
+    a1 = in1 * weights[0]
+    a2 = in2 * weights[1]
+    return a1 * a2
+
+def nn_div_protected(in1, in2, weights=[1.0, 1.0], threshold=1.0):
+    a1 = in1 * weights[0]
+    a2 = in2 * weights[1]
+    if abs(a2) < 1e-6:
+        return 1
+    return a1 / a2
+
+def T_link_softmax(*inputs):
+    inputs_tuple = ()
+    for inp in inputs:
+        inputs_tuple = inputs_tuple + (inp.reshape(1),)
+    in_tensor = torch.cat(inputs_tuple, 0)
+    softmax = torch.nn.Softmax(dim=0)
+    return softmax(in_tensor)
+# -------------------- Function Set Definitions (end) --------------------- #
 
 
 # ----------- Regression Problem (start) ----------------- #
@@ -178,17 +280,17 @@ multi-genic individuals where each gene is independently responsible
 for classifying their respective class. A softmax is used as the 
 linking function to produce the final output. 
 """
-# Glass dataset from UCI MLR (added header manually)
-# RI = Refractive Index
-# Na = Sodium content
-# Mg = Magnesium content
-# Al = Aluminum content
-# Si = Silicon content
-# K = Potassium content
-# Ca = Calcium content
-# Ba = Barium content
-# Fe = Iron content
-# class_id = classification (1-7)
+# # Glass dataset from UCI MLR (added header manually)
+# # RI = Refractive Index
+# # Na = Sodium content
+# # Mg = Magnesium content
+# # Al = Aluminum content
+# # Si = Silicon content
+# # K = Potassium content
+# # Ca = Calcium content
+# # Ba = Barium content
+# # Fe = Iron content
+# # class_id = classification (1-7)
 # glass_dataset = pd.read_csv("./../glassDataset/glassDataset.csv")
 # print(glass_dataset.describe(include='all')) # include all for string class
 
@@ -463,19 +565,18 @@ def evaluate(individual):
     
 # Create primitive set
 pset = PrimitiveSet('Main', input_names=['sl', 'sw', 'pl', 'pw'])
-# pset.add_nn_function(D_relu, 2, name="D_r")
-# pset.add_nn_function(T_relu, 3, name="T_r")
+pset.add_nn_function(D_relu, 2, name="D_r")
+pset.add_nn_function(T_relu, 3, name="T_r")
 pset.add_nn_function(Q_relu, 4, name="Q_r")
-# pset.add_nn_function(D_sigmoid, 2, name="D_s")
-# pset.add_nn_function(T_sigmoid, 3, name="T_s")
+pset.add_nn_function(D_sigmoid, 2, name="D_s")
+pset.add_nn_function(T_sigmoid, 3, name="T_s")
 pset.add_nn_function(Q_sigmoid, 4, name="Q_s")
-# pset.add_nn_function(D_tanh, 2, name="D_t")
-# pset.add_nn_function(T_tanh, 3, name="T_t")
+pset.add_nn_function(D_tanh, 2, name="D_t")
+pset.add_nn_function(T_tanh, 3, name="T_t")
 pset.add_nn_function(Q_tanh, 4, name="Q_t")
-
-pset.add_nn_function(nn_add, 4, name="add")
-pset.add_nn_function(nn_sub, 4, name="sub")
-pset.add_nn_function(nn_mult, 4, name="mult")
+pset.add_nn_function(nn_add, 2, name="add")
+pset.add_nn_function(nn_sub, 2, name="sub")
+pset.add_nn_function(nn_mult, 2, name="mult")
 
 # Create Individual class and fitness measurement
 creator.create("FitnessMin", base.Fitness, weights=(-1,)) # maximize fitness
@@ -483,7 +584,7 @@ creator.create("Individual", Chromosome, fitness=creator.FitnessMin)
 
 # GEP NN parameters
 guided = True
-h = 7 # 7 8       # head length
+h = 7 # 8       # head length
 n_genes = 3 # number of genes in a chromosome
 r = 10      # length of RNC arrays
 
@@ -544,7 +645,7 @@ def test_accuracy(individual, dataset):
     return accuracy
 
 n_pop = 20
-n_gens = 10 #  1000
+n_gen = 1000
 
 champs = 3
 
@@ -556,7 +657,7 @@ from pathlib import Path
 import time
 today = time.strftime("%Y%m%d")
 run_dir = "runs"
-model_path = str(Path.cwd()) + "/" + run_dir + "/" + today + '_iris' 
+model_path = str(Path.cwd()) + "/" + run_dir + "/" + today + '_regr' 
 if guided:
     model_path += "_guided"
 model_path += "/"
@@ -580,7 +681,7 @@ for i in range(iters):
     pop = toolbox.population(n=n_pop)
     hof = tools.HallOfFame(champs) 
     # start evolution
-    pop, log = gep_simple(pop, toolbox, n_generations=n_gens, n_elites=1,
+    pop, log = gep_simple(pop, toolbox, n_generations=n_gen, n_elites=1,
                               stats=stats, hall_of_fame=hof, verbose=False)
     best_ind = hof[0]
     

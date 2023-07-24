@@ -8,8 +8,8 @@ terminals randomly from a given primitive set to form a linear form gene express
 import random
 from ._util import _choose_a_terminal
 
-
-def generate_genome(pset, head_length):
+# TODO (Ryan Heminway) added guided here
+def generate_genome(pset, head_length, guided=False):
     """
     Generate a genome with the given primitive set *pset* and the specified head domain length *head_length*.
 
@@ -29,7 +29,7 @@ def generate_genome(pset, head_length):
     expr = [None] * (h + t)
     # head part: initialized with both functions and terminals
     for i in range(h):
-        if random.random() < 0.5:
+        if guided or random.random() < 0.5:
             expr[i] = random.choice(functions)
         else:
             expr[i] = _choose_a_terminal(terminals)
