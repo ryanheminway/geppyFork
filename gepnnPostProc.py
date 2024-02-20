@@ -67,6 +67,7 @@ def analyze_single_classifier(exp_path, file_name, exp_name):
     final_test_acc = run_obj.select('test_acc')[-1]
     
     print("Got final train / test acc: {} / {}".format(final_train_acc, final_test_acc))
+
     
     # Plot min / max / avg fitness across generations
     max_list = run_obj.select('max')
@@ -94,13 +95,15 @@ def analyze_single_classifier(exp_path, file_name, exp_name):
     plot_series(avg_list, "Generation", "Avg Fitness", "Avg Individual Trend")
     plot_series(med_list, "Generation", "Median Fitness", "Median in Population Trend")
     
+    print("Got final fitness {}".format(min_list[-1]))
+    
     # Store best individual as a graph image
     best_inds = run_obj.select('best_ind')
     best_inds = [x for x in best_inds if not x == None]
     
     if len(best_inds) > 0:
         graph_file = exp_path + "analyzed_best.png"
-        rename_labels = {'add': '+', 'sub': '-', 'mult': '*', 'protected_div': '/', "T_link_softmax" : "Softmax"}  
+        rename_labels = {'add': '+', 'sub': '-', 'mult': '*', 'div': '/', 'protected_div': '/', "T_link_softmax" : "Softmax" }  
         export_expression_tree_nn(best_inds[-1], rename_labels, graph_file)
         
         graph_prog_folder = "graph_story/"
@@ -111,6 +114,7 @@ def analyze_single_classifier(exp_path, file_name, exp_name):
         # Graph individual progression
         tot = len(best_inds)
         for i in range(tot):
+            print("Minimum fitness at generation {} : {}".format(i, min_list[i]))
             graph_file = graph_folder + "gen_{}.png".format(i)
             if i < 50:
                 export_expression_tree_nn(best_inds[i], rename_labels, graph_file)
@@ -247,7 +251,7 @@ def make_experiment_dict(exp_path, eant=False, guided=False):
         avg_max_fit += max_list[-1]
         if max_list[-1] > max_fit:
             max_fit = max_list[-1]
-            best_file = file_name # Overloading best_file for regr / classification
+            #best_file = file_name # Overloading best_file for regr / classification
         gens = list(range(len(max_list)))
         idxs = [i for j in range(len(max_list))]
         
@@ -342,21 +346,21 @@ def compare_experiments(title, experiments):
 if __name__ == '__main__':
     # Required for any un-pickling to work, when the pickled objects contain
     # Individuals 
-    # creator.create("FitnessMin", base.Fitness, weights=(-1,)) # min fitness
-    # creator.create("Individual", Chromosome, fitness=creator.FitnessMin)
+    creator.create("FitnessMin", base.Fitness, weights=(-1,)) # min fitness
+    creator.create("Individual", Chromosome, fitness=creator.FitnessMin)
     
-    creator.create("FitnessMax", base.Fitness, weights=(1,)) # maximize fitness
-    creator.create("Individual", Chromosome, fitness=creator.FitnessMax)
+    #creator.create("FitnessMax", base.Fitness, weights=(1,)) # maximize fitness
+   # creator.create("Individual", Chromosome, fitness=creator.FitnessMax)
     
-    model_path = str(Path.cwd()) + "/../../experiments/20230707_eant_vs_gepnn/gepnn/20230706_regr_guided/"
-    analyze_single_classifier(model_path, "stats_iter_53.pickle", "Testing plotting")
+    model_path = str(Path.cwd()) + "/../../experiments/20230707_eant_vs_gepnn/gepnn/20230706_iris/"
+    analyze_single_classifier(model_path, "stats_iter_0.pickle", "Testing plotting")
     
     #analyze_all(model_path)
     
     
     # Each experiment is a (path_to_data, eant_experiment?, guided_experiment?)
-    experiments = [(str(Path.cwd()) + "/../../experiments/20230707_eant_vs_gepnn/gepnn/202307x_glass_guided_combined/", False, True),
-                   (str(Path.cwd()) + "/../../experiments/20230707_eant_vs_gepnn/gepnn/202307x_glass_combined/", False, False)]
+    experiments = [(str(Path.cwd()) + "/../../experiments/20230707_eant_vs_gepnn/gepnn/20230706_iris_guided/", False, True),
+                   (str(Path.cwd()) + "/../../experiments/20230707_eant_vs_gepnn/gepnn/20230706_iris/", False, False)]
     
     #compare_experiments("20230706 Iris GEPNN", experiments)
     
