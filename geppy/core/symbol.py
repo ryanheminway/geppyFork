@@ -10,7 +10,7 @@ and :class:`Function` items, for management purpose.
 This module implementation refers a lot to the
 `deap.gp <http://deap.readthedocs.io/en/master/tutorials/advanced/gp.html>`_ module in DEAP,
 especially on primitive management and parsing during evaluation. However, unlike genetic programming (GP) in
-:mod:`deap.gp`, in GEP we usually only consider loosely  typed evolution, i.e., the terminals and functions don't
+:mod:`deap.gp`, in GEP we usually only consider loosely typed evolution, i.e., the terminals and functions don't
 require specific data types. As a result, the codes can be greatly simplified.
 
 .. note::
@@ -177,6 +177,84 @@ class NN_Function(Function):
         assert len(args) == (self.arity + 2), "Function {} requires {} inputs plus weights and a threshold for a total of {} arguments while {} are provided.".format(
             self.name, self.arity, self.arity + 2, len(*args))
         return self._seq.format(*args)
+    
+    
+class NN_Function_With_Jumpers(Function):
+    """
+    Class that encapsulates a neural network node (function) in GEP-NN. Note that this class 
+    only stores the function ID, i.e., the *name* attribute instead of the callable function 
+    itself. On the other hand, the underlying callable is retrieved somewhere else when needed, 
+    for example, from :class:`PrimitiveSet`. Thus, in the whole GEP-NN program the provided 
+    name for each function must be unique.
+    
+    These neural network nodes have the potential to incorporate jumper edges,
+    which do not impact the baseline arity of the function.
+    """
+
+    def __init__(self, name, arity):
+        """
+        Initialize a neural network node. It is always assumed that this function
+        will be capable of accepting two more arguments than its specified arity. 
+        The additional arguments are placeholders for "weights" and "threshold"
+        respectively.
+
+        :param name: str, name of the function, must be valid non-keyword Python identifier
+        :param arity: int, arity of the function
+        """
+        assert _is_nonkeyword_identifier(name), \
+            'Name of a function must be a valid non-keyword Python identifier'
+        super().__init__(name, arity)
+        
+        # Tracks the index (in the Genome) of the "from" element, to complete 
+        # the Jumper edge. This node is the "to" element.
+        self._fwd_jumpers_from_indices = []
+        self._fwd_jumpers_weights = []
+        self._rec_jumpers_from_indices = []
+        self._rec_jumpers_weights = []
+        
+    def add_jumper(self, from_index, weight, recurrent=False):
+        if recurrent:
+            self._rec_jumpers_from_indices += [from_index]
+            self._rec_jumpers_weights += [weight]
+        else:
+            self._fwd_jumpers_from_indices += [from_index]
+            self._fwd_jumpers_weights += [weight]
+            
+    def get_forward_jumper_tuples(self):
+        return zip(self._fwd_jumpers_from_indices, self._fwd_jumpers_weights)
+    
+    def get_recurrent_jumper_tuples(self):
+        return zip(self._rec_jumpers_from_indices, self._rec_jumpers_weights)
+
+    def format(self, *args):
+        """
+        Insert the arguments *args* into the function and get a Python statement to call the functions with the
+        arguments in a string form. This returned string can afterwards by evaluated using the builtin
+        :func:`eval` function.
+        
+        Since this is a NN Function with Jumpers (dynamic number of incoming edges), the args
+        array must be formatted carefully. Specifically, the first and second elements
+        must correspond to a set of weights and a set of thresholds respectively. The remaining
+        elements are all inputs. 
+        
+        >>> f = NN_Function_With_Jumpers('dynamic_relu', 3)
+        >>> f.format([[1.0, 2.0, 3.0], 1.0, 5.5, 2.5, 0.5])
+        'dynamic_relu(weights=[1.0, 2.0, 3.0], threshold=1.0, 5.5, 2.5, 0.5)'
+
+
+        :param args: arguments including weights and thresholds
+        :return: str, a string form of function calling with arguments
+        """
+        num_args = len(args)
+        # Make sure we have enough inputs, but not a strict size enforcement
+        assert num_args >= (self.arity + 2), "Function {} requires at least {} inputs plus weights and a threshold for a total of at least {} arguments while {} are provided.".format(
+            self.name, self.arity, self.arity + 2, len(*args))
+        placeholders = ', '.join('{{{}}}'.format(index) for index in range(num_args - 2))  # like '{0}, {1}, {2}'
+        placeholders += f", weights={{{num_args - 2}}}, threshold={{{num_args - 1}}}"
+        self._seq = self._name + '(' + placeholders + ')'
+        # Allowing extra arguments requires that the function accepts *args as its last argument
+        return self._seq.format(*args)
+    
 
 # ------------------------- Ryan Heminway addition (end) ------------------ #
     
@@ -414,6 +492,20 @@ class PrimitiveSet:
     def add_nn_function(self, func, arity, name=None):
         """
         Add a NN node function, which is internally encapsulated as a :class:`NN_Function` object.
+        
+        (NOTE Ryan) DEPRECATING. Calling `add_nn_function_with_jumpers` instead.
+
+        :param func: callable
+        :param arity: number of inputs expected by *func* node
+        :param name: name of *func*, default ``None``.
+            If remaining ``None``, then the ``func.__name__`` attribute is used instead.
+        """
+        self.add_nn_function_with_jumpers(func, arity, name)
+        
+        
+    def add_nn_function_with_jumpers(self, func, arity, name=None):
+        """
+        Add a NN node function with jumpers enabled, which is internally encapsulated as a :class:`NN_Function_With_Jumpers` object.
 
         :param func: callable
         :param arity: number of inputs expected by *func* node
@@ -423,9 +515,11 @@ class PrimitiveSet:
         if name is None:
             name = func.__name__
         self._assert_name_unique(name)
-        function_ = NN_Function(name, arity)
+        function_ = NN_Function_With_Jumpers(name, arity)
         self._functions.append(function_)
         self._globals[name] = func
+        
+        
     # -------------------- Ryan Heminway addition (end) --------------------- #
         
     def add_constant_terminal(self, value):

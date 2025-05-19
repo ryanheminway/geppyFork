@@ -12,7 +12,7 @@ transposition and inversion. Please refer to Chapter 3 of [FC2006]_ for more det
        :class:`~geppy.core.entity.GeneDc`.
 """
 import random
-from ..core.symbol import Function, EphemeralTerminal
+from ..core.symbol import Function, EphemeralTerminal, NN_Function_With_Jumpers
 from ._util import _choose_a_terminal
 
 _DEBUG = False
@@ -46,43 +46,6 @@ def _choose_subsequence_indices(i, j, min_length=1, max_length=-1):
     return start, start + length - 1
 
 
-def mutate_uniform(individual, pset, ind_pb='2p'):
-    """
-    Uniform point mutation. For each symbol (primitive) in *individual*, change it to another randomly chosen symbol
-    from *pset* with the probability *indpb*. A symbol may be a function or a terminal.
-
-    :param individual: :class:`~geppy.core.entity.Chromosome`, the chromosome to be mutated.
-    :param pset: :class:`~geppy.core.entity.PrimitiveSet`, a primitive set
-    :param ind_pb: float or str, default '2p'. Probability of mutating each symbol.
-        If *ind_pb* is given as a string ending with 'p',
-        then it indicates the expected number of point mutations among all the symbols in *individual*. For example,
-        if the total length of each gene of *individual* is `l` and there are `m` genes in total, then by passing
-        `ind_pb='1.5p'` we specify approximately `ind_pb=1.5/(l*m)`.
-    :return: A tuple of one chromosome
-
-    It is typical to set a mutation rate *indpb* equivalent to two one-point mutations per chromosome. That is,
-    ``indpb = 2 / len(chromosome) * len(gene)``.
-    """
-    if isinstance(ind_pb, str):
-        assert ind_pb.endswith('p'), "ind_pb must end with 'p' if given in a string form"
-        length = individual[0].head_length + individual[0].tail_length
-        ind_pb = float(ind_pb.rstrip('p')) / (len(individual) * length)
-    for gene in individual:
-        # mutate the gene with the associated pset
-        # head: any symbol can be changed into a function or a terminal
-        for i in range(gene.head_length):
-            if random.random() < ind_pb:
-                if random.random() < 0.5:  # to a function
-                    gene[i] = _choose_function(pset)
-                else:
-                    gene[i] = _choose_terminal(pset)
-        # tail: only change to another terminal
-        for i in range(gene.head_length, gene.head_length + gene.tail_length):
-            if random.random() < ind_pb:
-                gene[i] = _choose_terminal(pset)
-    return individual,
-
-
 def mutate_uniform_dc(individual, ind_pb='1p'):
     """
     Dc-specific mutation. This operator changes one index stored in the Dc domain to another index in place. The indices
@@ -113,12 +76,53 @@ def mutate_uniform_dc(individual, ind_pb='1p'):
 
 # ---------------------------- Ryan Heminway addition (start) --------------- #
 
+def mutate_uniform(individual, pset, ind_pb='2p'):
+    """
+    Uniform point mutation. For each symbol (primitive) in *individual*, change it to another randomly chosen symbol
+    from *pset* with the probability *indpb*. A symbol may be a function, or a terminal.
+
+    :param individual: :class:`~geppy.core.entity.Chromosome`, the chromosome to be mutated.
+    :param pset: :class:`~geppy.core.entity.PrimitiveSet`, a primitive set
+    :param ind_pb: float or str, default '2p'. Probability of mutating each symbol.
+        If *ind_pb* is given as a string ending with 'p',
+        then it indicates the expected number of point mutations among all the symbols in *individual*. For example,
+        if the total length of each gene of *individual* is `l` and there are `m` genes in total, then by passing
+        `ind_pb='1.5p'` we specify approximately `ind_pb=1.5/(l*m)`.
+    :return: A tuple of one chromosome
+
+    It is typical to set a mutation rate *indpb* equivalent to two one-point mutations per chromosome. That is,
+    ``indpb = 2 / len(chromosome) * len(gene)``.
+    """
+    if isinstance(ind_pb, str):
+        assert ind_pb.endswith('p'), "ind_pb must end with 'p' if given in a string form"
+        length = individual[0].head_length + individual[0].tail_length
+        ind_pb = float(ind_pb.rstrip('p')) / (len(individual) * length)
+    for gene in individual:
+        # mutate the gene with the associated pset
+        # head: any symbol can be changed into a function, jumper, or terminal
+        for i in range(gene.head_length):
+            if random.random() < ind_pb:
+                prob = random.random()
+                if prob < 0.5:  # to a function
+                    # Get a new instance, for safety when handling jumpers
+                    chosen_function = _choose_function(pset)
+                    gene[i] = NN_Function_With_Jumpers(name=chosen_function.name, arity=chosen_function.arity)
+                else: # to a terminal
+                    gene[i] = _choose_terminal(pset)
+        # tail: only change to another terminal
+        for i in range(gene.head_length, gene.head_length + gene.tail_length):
+            if random.random() < ind_pb:
+                gene[i] = _choose_terminal(pset)
+    return individual,
+
 def mutate_uniform_save_head(individual, pset, ind_pb='2p'):
     """
     Uniform point mutation. For each symbol (primitive) in *individual*, change it to another randomly chosen symbol
-    from *pset* with the probability *indpb*. A symbol may be a function or a terminal. The unique aspect
-    of this method is that symbols in the HEAD must always be a function. This method for mutation maintains
-    this rule. 
+    from *pset* with the probability *indpb*. A symbol may be a function or a terminal or a jumper. 
+    
+    (NOTE Ryan) For now.... Jumpers are not like other primitives. They are dynamically created rather than
+    sampled from a fixed list of options. This is to handle the "from-node" complexity in a better way. The
+    "better way" employed here is to specifically assign a "from-node" to the Jumper directly upon creation.
 
     :param individual: :class:`~geppy.core.entity.Chromosome`, the chromosome to be mutated.
     :param pset: :class:`~geppy.core.entity.PrimitiveSet`, a primitive set
@@ -141,8 +145,9 @@ def mutate_uniform_save_head(individual, pset, ind_pb='2p'):
         # head: any symbol can be changed into a function or a terminal
         for i in range(gene.head_length):
             if random.random() < ind_pb:
-                # Only choose from functions 
-                gene[i] = _choose_function(pset)
+                # Get a new instance, for safety when handling jumpers
+                chosen_function = _choose_function(pset)
+                gene[i] = NN_Function_With_Jumpers(name=chosen_function.name, arity=chosen_function.arity)
         # tail: only change to another terminal
         for i in range(gene.head_length, gene.head_length + gene.tail_length):
             if random.random() < ind_pb:
@@ -262,7 +267,6 @@ def transpose_dt(individual):
         print('Dw transpose: g{}[{}:{}] -> g{}[{}] (both included)'.format(i, t_start, t_end, j, insertion_pos))
     return individual,
 
-
 def mutate_rnc_array_dw(individual, rnc_gen, ind_pb='1p'):
     """
     Direct mutation of weight RNCs, which changes the values in a gene's RNC array
@@ -300,7 +304,7 @@ def mutate_rnc_array_dw(individual, rnc_gen, ind_pb='1p'):
 
 def mutate_rnc_array_dt(individual, rnc_gen, ind_pb='1p'):
     """
-    Direct mutation of weight RNCs, which changes the values in a gene's RNC array
+    Direct mutation of threshold RNCs, which changes the values in a gene's RNC array
     :meth:`~geppy.core.entity.GeneNN.dt_rnc_array` randomly.
 
     :param individual: :class:`~geppy.core.entity.Chromosome`, a chromosome, which contains genes of type
@@ -333,11 +337,44 @@ def mutate_rnc_array_dt(individual, rnc_gen, ind_pb='1p'):
                 g.dt_rnc_array[i] = rnc_gen()
     return individual,
 
+def mutate_add_jumpers(individual, weight_gen, ind_pb='1p'):
+    """
+    Mutation that adds jumpers to NN_Functions_With_Jumper elements in the Head
+    section of an individual.
+    
+    Jumpers added here are not necessarily valid. Jumpers are generated with 
+    random "from_index", "weight", and "recurrent" parameters. Validity is
+    enforced later upon individual evaluation, where invalid jumpers are
+    ignored.
+    
+    :param individual: :class:`~geppy.core.entity.Chromosome`, the chromosome to be mutated.
+    :param weight_gen: callable, which returns a random numerical constant by calling ``rnc_gen()``.
+    :param ind_pb: float or str, default '2p'. Probability of mutating each NN_Function_With_Jumpers in the Head.
+        If *ind_pb* is given as a string ending with 'p', then it indicates the expected number of point mutations among all the Functions in *individual*. For example,
+        if the total length of each gene of *individual* is `l` and there are `m` genes in total, then by passing
+        `ind_pb='1.5p'` we specify approximately `ind_pb=1.5/(l*m)`.
+    :return: A tuple of one chromosome
+    """
+    if isinstance(ind_pb, str):
+        assert ind_pb.endswith('p'), "ind_pb must end with 'p' if given in a string form"
+        length = individual[0].head_length + individual[0].tail_length
+        ind_pb = float(ind_pb.rstrip('p')) / (len(individual) * length)
+    for gene in individual:
+        # mutate the gene with the associated pset
+        # head: any symbol can be changed into a function, jumper, or terminal
+        for i in range(gene.head_length):
+            if isinstance(gene[i], NN_Function_With_Jumpers):
+                # Randomly generate a Jumper. It may be invalid.
+                if random.random() < ind_pb:
+                    # "from_index" can be anything in the head range.
+                    from_index = random.choice(list(range(individual[0].head_length)))
+                    weight = weight_gen()
+                    recurrent = random.choice([True, False])
+                    gene[i].add_jumper(from_index=from_index, weight=weight, recurrent=recurrent)
+    return individual,
+    
+
 # -------------------------- Ryan Heminway addition (end) ------------------- #
-
-
-
-
 
 
 def invert(individual):

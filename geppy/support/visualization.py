@@ -7,7 +7,7 @@ K-expression, a gene or a chromosome in GEP.
 """
 
 from ..core.entity import KExpression, Chromosome, Gene, GeneNN
-from ..core.symbol import Function, Terminal
+from ..core.symbol import Function, Terminal, NN_Function_With_Jumpers
 
 
 def _graph_kexpression(expr, starting_index):
@@ -40,14 +40,15 @@ def _graph_kexpression(expr, starting_index):
     return nodes, edges, labels
 
 # ------------------------ Ryan Heminway addition (start) ----------------- #
-def _graph_kexpression_nn(expr, starting_index, weights):
+def _graph_kexpression_nn(expr, starting_index, weights, depths):
     """
-    Create a graph for a K-expression describing a GeneNN *expr* with the
-    node's number starting from *starting_index*.
+    Create a graph for KExpression describing a GeneNN *expr* with the node's number starting from 
+    *starting_index*.
 
-    :param expr: k-expression describing a GeneNN
+    :param expr: a KExpression describing a GeneNN
     :param starting_index: the first number of nodes in the expression tree
     :param weights: array corresponding to weights of edges in nn graph
+    :param depths: a list matching size of individual, describing depth of element node at each index
     :return: A node list, an edge list, and a dictionary of labels.
     """
     assert len(expr) > 0
@@ -58,13 +59,13 @@ def _graph_kexpression_nn(expr, starting_index, weights):
     for i, p in enumerate(expr):
         if isinstance(p, Function):
             nodes.append(starting_index + i)
-            labels[starting_index + i] = p.name
+            labels[starting_index + i] = [p.name, depths[i]]
         elif isinstance(p, Terminal):
             name = p.format()
             if name not in input_nodes:
                 nodes.append(starting_index + i)
                 input_nodes[name] = starting_index + i
-                labels[starting_index + i] = name
+                labels[starting_index + i] = [name, depths[i]]
         else:
             raise RuntimeError('Unrecognized symbol. Normally, a symbol in the K-expression is either a function '
                                'or a terminal')
@@ -72,6 +73,24 @@ def _graph_kexpression_nn(expr, starting_index, weights):
     j = 0
     last_j = 0
     while i < len(expr):
+        element = expr[i]
+        this_element_index = starting_index + i
+        
+        # Draw jumper edges
+        if isinstance(element, NN_Function_With_Jumpers):
+            for (from_element_index, weight) in element.get_forward_jumper_tuples():
+                from_element = expr[from_element_index]
+                if isinstance(from_element, NN_Function_With_Jumpers) and (depths[from_element_index] > i):
+                    print("Visualizing a jumper!")
+                    edges.append((from_element_index + starting_index, this_element_index, weight, "fwd"))
+                    
+            for (from_element_index, weight) in element.get_recurrent_jumper_tuples():
+                from_element = expr[from_element_index]
+                if isinstance(from_element, NN_Function_With_Jumpers):
+                    print("Visualizing a jumper!")
+                    edges.append((from_element_index + starting_index, this_element_index, weight, "rec"))
+        
+        
         # (NOTE Ryan) Indexing here is tough... normally weights are distributed right-to-left but its opposite here
         for k in range(expr[i].arity):
             j += 1
@@ -80,9 +99,9 @@ def _graph_kexpression_nn(expr, starting_index, weights):
             if isinstance(p, Terminal):
                 name = p.format()
                 # i + starting_index, input_nodes[name]
-                edges.append((input_nodes[name], i + starting_index, weights[len(weights) - (len(expr) - 1) + last_j + (expr[i].arity - k - 1)]))
-            else: 
-                edges.append((j + starting_index, i + starting_index, weights[len(weights) - (len(expr) - 1) + last_j + (expr[i].arity - k - 1)]))
+                edges.append((input_nodes[name], this_element_index, weights[len(weights) - (len(expr) - 1) + last_j + (expr[i].arity - k - 1)], "normal"))
+            else:
+                edges.append((j + starting_index, this_element_index, weights[len(weights) - (len(expr) - 1) + last_j + (expr[i].arity - k - 1)], "normal"))
         i += 1
         last_j = j
     return nodes, edges, labels
@@ -110,7 +129,7 @@ def graph_nn(genome, label_renaming_map=None):
     
     def graph_gene_nn(genome, index):
         weights = [genome.dw_rnc_array[x] for x in genome.dw] 
-        nodes, edges, labels = _graph_kexpression_nn(genome.kexpression, index, weights)
+        nodes, edges, labels = _graph_kexpression_nn(genome.kexpression, index, weights, genome.__find_depths__())
         return nodes, edges, labels
     
     if isinstance(genome, GeneNN):
@@ -132,16 +151,16 @@ def graph_nn(genome, label_renaming_map=None):
             # connect subtrees by inserting the linker node as 0
             nodes.append(0)
             for root in sub_roots:
-                edges.append((root, 0, 1)) # (NOTE Ryan) Assuming linking functions use weights of 1
-            labels[0] = genome.linker.__name__
+                edges.append((root, 0, 1, "normal")) # (NOTE Ryan) Assuming linking functions use weights of 1
+            labels[0] = [genome.linker.__name__, 0] # (TODO Ryan) is depth 0 right here?
     else:
         raise TypeError('Only an argument of type KExpression, Gene, and Chromosome is acceptable. The provided '
                         'genome type is {}.'.format(type(genome)))
     # rename_labels labels
     if label_renaming_map is not None:
         for k, v in labels.items():
-            if v in label_renaming_map:
-                labels[k] = label_renaming_map[v]
+            if v[0] in label_renaming_map:
+                labels[k][0] = label_renaming_map[v[0]]
     return nodes, edges, labels
 
 def export_expression_tree_nn(genome, label_renaming_map=None, file='tree.png'):
@@ -171,12 +190,40 @@ def export_expression_tree_nn(genome, label_renaming_map=None, file='tree.png'):
     # Make 2 graphs, one with labels
     g = gv.Digraph(format=ext, engine='dot', graph_attr={'splines': 'ortho'})
     g2 = gv.Digraph(format=ext, engine='dot', graph_attr={'splines': 'ortho'})
-    for name, label in labels.items():
-        g.node(str(name), str(label))  # add node
-        g2.node(str(name), str(label))
-    for name1, name2, label in edges:
-        g.edge(str(name1), str(name2), xlabel="", dir="Forward")  # add edge
-        g2.edge(str(name1), str(name2), xlabel=str(label), dir="Forward")  # add edge
+    sorted_nodes = sorted(labels.items(), key=lambda x: x[1][1])
+    
+    for name, label in sorted_nodes:
+        g.node(str(name), str(label[0]))  # add node
+        g2.node(str(name), str(label[0]))
+        
+    # (TODO) This code is messy... was prototyping
+    # Structure nodes by depth
+    # Find the minimum and maximum depths
+    min_depth = 0
+    max_depth = max(label[1] for name, label in sorted_nodes)
+    
+    for name, label in sorted_nodes:
+        if label[1] == -1:
+            label[1] = max_depth + 1
+    max_depth = max_depth + 1
+    
+    # Structure the nodes into rows by depth using rank
+    for depth in range(min_depth, max_depth + 1):
+        with g.subgraph() as s:
+            s.attr(rank='same')
+            for name, label in sorted_nodes:
+                if label[1] == depth:
+                    s.node(str(name), str(label[0]))
+    
+    for name1, name2, label, edge_type in edges:
+        if edge_type is "fwd":
+            color = "green"
+        elif edge_type is "rec":
+            color = "red"
+        else:
+            color = "black"
+        g.edge(str(name1), str(name2), xlabel="", dir="Forward", color=color)  # add edge
+        g2.edge(str(name1), str(name2), xlabel=str(label), dir="Forward", color=color)  # add edge
     g.render(file_name)    
     file_name_labels = file_name + "_labeled"
     g2.render(file_name_labels)
