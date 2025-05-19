@@ -14,6 +14,7 @@ from geppy.tools.mutation import *
 from geppy.tools.crossover import *
 from geppy.algorithms.basic import *
 from geppy.support.visualization import *
+from geppy.support.functions import *
 
 # (NOTE Ryan) did not edit deap 
 from deap import creator, base, tools
@@ -33,111 +34,6 @@ import torch
 
 # REQUIRED TO AVOID GRAPHVIZ ERRORS
 os.environ["PATH"] += os.pathsep + 'C:/Program Files/Graphviz/bin'
-
-# -------------------- Function Set Definitions (start) --------------------- #
-def binary_thresh(activation, threshold=1.0):
-    return (activation > threshold).float()
-
-def sigmoid(activation, threshold=1.0):
-    return torch.sigmoid(activation)
-
-def tanh(activation, threshold=1.0):
-    return torch.tanh(activation)
-
-def relu(activation, threshold=1.0):
-    return torch.relu(activation)
-
-def base_neuron_fn(in_tensor, w_tensor, threshold, activation="binary-thresh"):
-    """
-    Basic neuron functionality: dot product between inputs and weights, with
-    activation function applied to the result. Expects inputs and weights 
-    arguments to be given as PyTorch tensors.
-    """
-    activations = { 'binary-thresh' : binary_thresh,
-                    'sigmoid' : sigmoid,
-                    'tanh' : tanh,
-                    'relu' : relu,
-                 }
-    act = torch.dot(in_tensor, w_tensor)
-    act_fun = activations[activation]
-    return act_fun(act, threshold)
-
-def D_relu(in1, in2, weights=[1.0,1.0], threshold=1.0):
-    in_tensor = torch.cat((in1.reshape(1), in2.reshape(1)), 0)
-    weights_tensor = torch.tensor(weights, dtype=torch.float)
-    return base_neuron_fn(in_tensor, weights_tensor, threshold, "relu")
-    
-def T_relu(in1, in2, in3, weights=[1.0,1.0,1.0], threshold=1.0):
-    in_tensor = torch.cat((in1.reshape(1), in2.reshape(1), in3.reshape(1)), 0)
-    weights_tensor = torch.tensor(weights, dtype=torch.float)
-    return base_neuron_fn(in_tensor, weights_tensor, threshold, "relu")
-
-def Q_relu(in1, in2, in3, in4, weights=[1.0,1.0,1.0,1.0], threshold=1.0):
-    in_tensor = torch.cat((in1.reshape(1), in2.reshape(1), in3.reshape(1), in4.reshape(1)), 0)
-    weights_tensor = torch.tensor(weights, dtype=torch.float)
-    return base_neuron_fn(in_tensor, weights_tensor, threshold, "relu")
-
-def D_tanh(in1, in2, weights=[1.0,1.0], threshold=1.0):
-    in_tensor = torch.cat((in1.reshape(1), in2.reshape(1)), 0)
-    weights_tensor = torch.tensor(weights, dtype=torch.float)
-    return base_neuron_fn(in_tensor, weights_tensor, threshold, "tanh")
-    
-def T_tanh(in1, in2, in3, weights=[1.0,1.0,1.0], threshold=1.0):
-    in_tensor = torch.cat((in1.reshape(1), in2.reshape(1), in3.reshape(1)), 0)
-    weights_tensor = torch.tensor(weights, dtype=torch.float)
-    return base_neuron_fn(in_tensor, weights_tensor, threshold, "tanh")
-
-def Q_tanh(in1, in2, in3, in4, weights=[1.0,1.0,1.0,1.0], threshold=1.0):
-    in_tensor = torch.cat((in1.reshape(1), in2.reshape(1), in3.reshape(1), in4.reshape(1)), 0)
-    weights_tensor = torch.tensor(weights, dtype=torch.float)
-    return base_neuron_fn(in_tensor, weights_tensor, threshold, "tanh")
-
-def D_sigmoid(in1, in2, weights=[1.0,1.0], threshold=1.0):
-    in_tensor = torch.cat((in1.reshape(1), in2.reshape(1)), 0)
-    weights_tensor = torch.tensor(weights, dtype=torch.float)
-    return base_neuron_fn(in_tensor, weights_tensor, threshold, "sigmoid")
-    
-def T_sigmoid(in1, in2, in3, weights=[1.0,1.0,1.0], threshold=1.0):
-    in_tensor = torch.cat((in1.reshape(1), in2.reshape(1), in3.reshape(1)), 0)
-    weights_tensor = torch.tensor(weights, dtype=torch.float)
-    return base_neuron_fn(in_tensor, weights_tensor, threshold, "sigmoid")
-
-def Q_sigmoid(in1, in2, in3, in4, weights=[1.0,1.0,1.0,1.0], threshold=1.0):
-    in_tensor = torch.cat((in1.reshape(1), in2.reshape(1), in3.reshape(1), in4.reshape(1)), 0)
-    weights_tensor = torch.tensor(weights, dtype=torch.float)
-    return base_neuron_fn(in_tensor, weights_tensor, threshold, "sigmoid")
-
-def nn_add(in1, in2, weights=[1.0, 1.0], threshold=1.0):
-    a1 = in1 * weights[0]
-    a2 = in2 * weights[1]
-    return a1 + a2
-
-def nn_sub(in1, in2, weights=[1.0, 1.0], threshold=1.0):
-    a1 = in1 * weights[0]
-    a2 = in2 * weights[1]
-    return a1 - a2
-
-def nn_mult(in1, in2, weights=[1.0, 1.0], threshold=1.0):
-    a1 = in1 * weights[0]
-    a2 = in2 * weights[1]
-    return a1 * a2
-
-def nn_div_protected(in1, in2, weights=[1.0, 1.0], threshold=1.0):
-    a1 = in1 * weights[0]
-    a2 = in2 * weights[1]
-    if abs(a2) < 1e-6:
-        return 1
-    return a1 / a2
-
-def T_link_softmax(*inputs):
-    inputs_tuple = ()
-    for inp in inputs:
-        inputs_tuple = inputs_tuple + (inp.reshape(1),)
-    in_tensor = torch.cat(inputs_tuple, 0)
-    softmax = torch.nn.Softmax(dim=0)
-    return softmax(in_tensor)
-# -------------------- Function Set Definitions (end) --------------------- #
-
 
 # ----------- Regression Problem (start) ----------------- #
 """
@@ -543,11 +439,53 @@ Y = train.c.values  # this is our target, now mapped to Y
 # print(P_LEN)
 # print(P_WID)
 # print(Y)
+    
+# Create primitive set
+# (TODO Ryan) This defaults to two jumpers, one forward one recurrent
+pset = PrimitiveSet('Main', input_names=['sl', 'sw', 'pl', 'pw'])
+pset.add_nn_function(dynamic_relu, 2, name="D_r")
+pset.add_nn_function(dynamic_relu, 3, name="T_r")
+pset.add_nn_function(dynamic_relu, 4, name="Q_r")
+pset.add_nn_function(dynamic_sigmoid, 2, name="D_s")
+pset.add_nn_function(dynamic_sigmoid, 3, name="T_s")
+pset.add_nn_function(dynamic_sigmoid, 4, name="Q_s")
+pset.add_nn_function(dynamic_tanh, 2, name="D_t")
+pset.add_nn_function(dynamic_tanh, 3, name="T_t")
+pset.add_nn_function(dynamic_tanh, 4, name="Q_t")
+pset.add_nn_function(dynamic_add, 2, name="add")
+pset.add_nn_function(dynamic_sub, 2, name="sub")
+pset.add_nn_function(dynamic_mult, 2, name="mult")
+
+# Create Individual class and fitness measurement
+creator.create("FitnessMin", base.Fitness, weights=(-1,)) # maximize fitness
+creator.create("Individual", Chromosome, fitness=creator.FitnessMin)
+
+def are_lists_approximately_equal(list1, list2, threshold=0.5):
+    # Check if the lists have the same length
+    if len(list1) != len(list2):
+        return False
+    
+    # Check if each corresponding element is within the threshold
+    for tensor1, tensor2 in zip(list1, list2):
+        diff = torch.abs(tensor1 - tensor2)
+        if torch.any(diff > threshold):
+            return False
+    
+    return True
 
 def evaluate(individual): 
     func = toolbox.compile(individual)
+    rec_func = toolbox.compile_recurrent(individual)
     # Get predicted labels
     Yp_list = list(map(func, S_LEN, S_WID, P_LEN, P_WID))
+    # Sequences is a list of elements, where each element is a sequence. 
+    # Each sequence is a list of elements where each element is a list 
+    # representing an input for one time step. This element does not HAVE to be a list.
+    sequences = [[[S_LEN[i], S_WID[i], P_LEN[i], P_WID[i]]] for i in range(len(S_LEN))]
+    Yp_list_from_sequences = list(map(rec_func, sequences))
+    if not are_lists_approximately_equal(Yp_list, Yp_list_from_sequences):
+        print("Our recurrent predictions are NOT the same as ff predictions!")
+    
     Yp = torch.Tensor(len(Yp_list), 3).float()
     #print("Yp_list: ", Yp_list)
     torch.stack(Yp_list, dim=0, out=Yp) # Turn list of tensors into stacked tensor
@@ -562,29 +500,10 @@ def evaluate(individual):
     loss = torch.nn.CrossEntropyLoss(reduction='sum')
     #print("loss: ", loss(Yp, labels_t))
     return loss(Yp, labels_t).item(),
-    
-# Create primitive set
-pset = PrimitiveSet('Main', input_names=['sl', 'sw', 'pl', 'pw'])
-pset.add_nn_function(D_relu, 2, name="D_r")
-pset.add_nn_function(T_relu, 3, name="T_r")
-pset.add_nn_function(Q_relu, 4, name="Q_r")
-pset.add_nn_function(D_sigmoid, 2, name="D_s")
-pset.add_nn_function(T_sigmoid, 3, name="T_s")
-pset.add_nn_function(Q_sigmoid, 4, name="Q_s")
-pset.add_nn_function(D_tanh, 2, name="D_t")
-pset.add_nn_function(T_tanh, 3, name="T_t")
-pset.add_nn_function(Q_tanh, 4, name="Q_t")
-pset.add_nn_function(nn_add, 2, name="add")
-pset.add_nn_function(nn_sub, 2, name="sub")
-pset.add_nn_function(nn_mult, 2, name="mult")
-
-# Create Individual class and fitness measurement
-creator.create("FitnessMin", base.Fitness, weights=(-1,)) # maximize fitness
-creator.create("Individual", Chromosome, fitness=creator.FitnessMin)
 
 # GEP NN parameters
 guided = True
-h = 7 # 8       # head length
+h = 4 # 8       # head length
 n_genes = 3 # number of genes in a chromosome
 r = 10      # length of RNC arrays
 
@@ -598,6 +517,7 @@ toolbox.register("individual", creator.Individual, gene_gen=toolbox.gene_gen,
                   n_genes=n_genes, linker=T_link_softmax)
 toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 toolbox.register("compile", compile_, pset=pset)
+toolbox.register("compile_recurrent", compile_recurrent_, pset=pset)
 toolbox.register("evaluate", evaluate)
 toolbox.register("select", tools.selTournament, tournsize=3)
 toolbox.register("mut_dw", mutate_uniform_dw, ind_pb=0.044, pb=1)
@@ -607,6 +527,7 @@ toolbox.register("mut_transpose_dt", transpose_dt, pb=0.1)
 #toolbox.register("mut_rncs_dw", mutate_rnc_array_dw, rnc_gen=toolbox.weight_gen, ind_pb='0.5p', pb=0.05)
 #toolbox.register("mut_rncs_dt", mutate_rnc_array_dt, rnc_gen=toolbox.thresh_gen, ind_pb='0.5p', pb=0.05)
 toolbox.register("cx_1p", crossover_one_point, pb=0.6)
+toolbox.register("mut_add_jumper", mutate_add_jumpers, weight_gen=toolbox.weight_gen, pb=1)
 
 # Certain operators only apply when HEAD can be mutated
 if guided:
@@ -645,11 +566,11 @@ def test_accuracy(individual, dataset):
     return accuracy
 
 n_pop = 20
-n_gen = 1000
+n_gen = 5 # 1000
 
 champs = 3
 
-iters = 100
+iters = 1 # 100
 #successes = 0
 
 # Make a folder for the run
@@ -657,7 +578,7 @@ from pathlib import Path
 import time
 today = time.strftime("%Y%m%d")
 run_dir = "runs"
-model_path = str(Path.cwd()) + "/" + run_dir + "/" + today + '_regr' 
+model_path = str(Path.cwd()) + "/" + run_dir + "/" + today + '_iris' 
 if guided:
     model_path += "_guided"
 model_path += "/"
@@ -669,8 +590,31 @@ def _write_to_file(file, content):
     f.write(content)  
     f.close()
 
+# TEST WHAT INDIVIDUAL LOOKS LIKE
+def count_integers_in_list(lst):
+    count = 0
 
+    for element in lst:
+        if isinstance(element, int):
+            count += 1
 
+    return count
+
+"""
+gepnn_individual = toolbox.gene_gen()
+
+print(len(list(gepnn_individual)))
+print(count_integers_in_list(list(gepnn_individual)))
+#print("GEPNN IND: ", [ele.name for ele in gepnn_individual[:-35]])
+print("Actual Expression IND: ", gepnn_individual)
+
+file_name = model_path + "iris_TESTNG.png"
+rename_labels = {'add': '+', 'sub': '-', 'mul': '*', 'protected_div': '/'} 
+# (TODO The drawing doesn't work with jumpers) 
+export_expression_tree_nn(gepnn_individual, rename_labels, file_name)
+print("exiting")
+exit(1)
+"""
 
 _write_to_file(results_file, "Running GEPNN solver for Iris Classification\n")
 avg_test_acc = 0
@@ -704,7 +648,7 @@ for i in range(iters):
     
     # Add final train / test accuracies as a non-series row
     record = { "train_acc" : train_acc, "test_acc" : test_acc }
-    log.record(gen=n_gens + 1, nevals=0, **record)
+    log.record(gen=n_gen + 1, nevals=0, **record)
     # Save statistics as a pickle object file on disk
     pkl_file = open(model_path + "stats_iter_{}.pickle".format(i), 'wb')
     pickle.dump(log, pkl_file)

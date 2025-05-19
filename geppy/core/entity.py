@@ -12,8 +12,8 @@ from multiple genes into a single result.
 """
 import copy
 from ..tools.generator import *
-from ..core.symbol import Function, RNCTerminal, Terminal
-
+from ..core.symbol import NN_Function_With_Jumpers, Function, RNCTerminal, Terminal
+from ..tools.parser import _compile_subgraph
 
 _DEBUG = False
 
@@ -193,6 +193,7 @@ class Gene(list):
         """Get the K-expression of type :class:`KExpression` represented by this gene.
         """
         # get the level-order K expression
+        #print("full self at kexpr: ", [i for i in self])
         expr = KExpression([self[0]])
         i = 0
         j = 1
@@ -522,6 +523,7 @@ class GeneNN(Gene):
         :return: :class:`GeneNN`, a gene
         """
         g = super().from_genome(genome, head_length)  # the genome is copied and the head-length is fixed
+        g._max_arity = max_arity
         g._dw_rnc_array = copy.deepcopy(dw_rnc_array)
         g._dt_rnc_array = copy.deepcopy(dt_rnc_array)
         return g
@@ -584,11 +586,52 @@ class GeneNN(Gene):
         """
         return self[self.head_length + self.tail_length + self.dw_length: len(self)]
 
+    
+    def __find_depths__(self):
+        """
+        Helper function to find mapping between element index and its depth in NN
+        tree where depth 0 is the output node.
+        
+        :returns: a list where each element is the corresponding depth for that
+            index in the individual.
+        """
+        expr = self.kexpression
+        i = 0
+        node_index = 0 # For tracking nodes (helps with jumper lookups)
+        node_depths = [0] * len(expr)
+        depth = 0
+        nodes_this_depth = 1
+        nodes_next_depth = 0
+        # Find depths of nodes according to arities
+        while i < len(expr) - 1: 
+            if expr[i].arity > 0:  # a function
+                nodes_next_depth += expr[i].arity
+                node_depths[i] = depth
+                # Track indexes
+                node_index += 1
+            else:
+                # Setting a depth of -1 for terminals so that it is uniquely
+                # recognizable. Will change if we allow jumpers to terminals.
+                node_depths[i] = -1 
+                
+            nodes_this_depth -= 1
+            
+            if nodes_this_depth == 0:
+                nodes_this_depth = nodes_next_depth
+                nodes_next_depth = 0
+                depth += 1
+            i += 1
+        
+        return node_depths
+    
+
     def __str__(self): 
         """
         Return the expression in a human readable string. Functions which require
         weights and thresholds as inputs will have them added, retrieved from
         Dw and Dt respectively. 
+        
+        This function IGNORES jumpers. For use of jumpers see `compute_step_output()`
     
         :return: string form of the expression
         """
@@ -596,8 +639,8 @@ class GeneNN(Gene):
         w_i = self.dw_length - 1
         t_i = self.dt_length - 1
         i = len(expr) - 1
-        while i >= 0:
-            if expr[i].arity > 0:  # a function
+        while i >= 0:            
+            if isinstance(expr[i], Function): 
                 f = expr[i]
                 args = []
                 # Pop node inputs
@@ -624,7 +667,7 @@ class GeneNN(Gene):
                 index = self.dt[t_i]
                 value = self._dt_rnc_array[index]
                 t_i = t_i - 1
-                args.append(str(value))
+                args.append(str(value))            
                 expr[i] = f.format(*args)  # replace the operator with its result (str)
             i -= 1
 
@@ -634,16 +677,129 @@ class GeneNN(Gene):
         if isinstance(expr[0], RNCTerminal):  # only contains a single RNC, let's retrieve its value
             return str(self.rnc_array[self.dc[0]])
         return expr[0].format()    # only contains a normal terminal
-
-    # @property
-    # def kexpression(self):
-    #     """
-    #     Get the K-expression of type :class:`KExpression` represented by this gene.
+    
+    def compute_step_output(self, *input_values, pset=None, hidden_state=None): 
+        """
+        Compute output for a set of inputs and a hidden state. Represents one
+        step of a full computation, assuming inputs are sequential.
         
-    #     (NOTE Ryan Heminway 5/23/23) Expression will not indicate thresholds
-    #     or weights. 
-    #     """
-    #     return Gene.kexpression
+        :param input_values: values of expected input nodes, in expected order.
+        :param pset: PrimitiveSet used for this evolution.
+        :param hidden_state: List, same length as the genotype, that stores the hidden state values for each element in the genotype.
+        :return: current state outputs (hidden state in next step), full string expression 
+        """
+        if pset is None:
+            raise ValueError("Provided pset cannot be None!")
+        
+        expr = self.kexpression
+        copy_expr = self.kexpression
+        w_i = self.dw_length - 1
+        t_i = self.dt_length - 1
+        # List matching size of individual, elements indicate depth at that index
+        depths = self.__find_depths__()
+        # List matching size of individual, elements indicate subgraph OUTPUT at that index
+        subgraphs = [""] * len(expr)
+        # Hidden state is a list matching size of individual, elements indicate hidden state at that index
+        if hidden_state is None:
+            # Default is all 0s
+            hidden_state = [0] * len(expr)
+                    
+        i = len(expr) - 1
+        while i >= 0:            
+            if isinstance(expr[i], NN_Function_With_Jumpers):  # a function
+                f = expr[i]
+                args = []
+                # Pop node inputs
+                for _ in range(f.arity):
+                    ele = expr.pop()
+                    if isinstance(ele, str):
+                        args.append(ele)
+                    else:  # a terminal
+                        args.append(ele.format())
+                        
+                # reverse node inputs before including weights/threshold
+                args = [*(reversed(args))]
+                        
+                # Pop node weights
+                weights = []
+                for _ in range(f.arity):
+                    index = self.dw[w_i]
+                    value = self._dw_rnc_array[index]
+                    weights.append(value)
+                    w_i = w_i - 1
+                    
+                # Before locking args and appending weights, handle jumpers
+                for (from_element_index, weight) in f.get_forward_jumper_tuples():
+                    if from_element_index < len(copy_expr):
+                        from_element = copy_expr[from_element_index]
+                        # Fwd jumper must be from a Function, and from a higher depth (lower level)
+                        if isinstance(from_element, NN_Function_With_Jumpers) and (depths[from_element_index] > i):
+                            if subgraphs[from_element_index] != None:
+                                # (TODO Ryan) I believe the depth check ensures this element exists in the subgraphs tracking
+                                # Can add another check for that if we need, maybe?
+                                # print("Got valid fwd jumper in eval... to/from: ", i, from_element_index)
+                                args.append(float(subgraphs[from_element_index]))
+                                weights.append(weight)
+                    #else:
+                        #print("Got unusable from_index: ", from_element_index, " when kexpr is: ", expr, "at index: ", i)
+                        
+                        
+                for (from_element_index, weight) in f.get_recurrent_jumper_tuples():
+                    if from_element_index < len(copy_expr):                        
+                        from_element = copy_expr[from_element_index]
+                        if isinstance(from_element, NN_Function_With_Jumpers):
+                            if hidden_state[from_element_index] != None:
+                                #print("Got valid rec jumper in eval... to/from: ", i, from_element_index)
+                                # Based on how we handle subgraphs and hidden_state,
+                                # the values should always be numeric when we fetch
+                                # from them. That allows us to always use float() and not str()
+                                args.append(float(hidden_state[from_element_index]))
+                                weights.append(weight)    
+                    #else:
+                        #print("Got unusable from_index: ", from_element_index, " when kexpr is: ", expr, " at index: ", i)
+
+                    
+                args.append(str(weights))
+                
+                # Pop node threshold
+                index = self.dt[t_i]
+                value = self._dt_rnc_array[index]
+                t_i = t_i - 1
+                args.append(str(value))            
+                expr[i] = f.format(*args)  # replace the operator with its result (str)   
+
+            # Track subgraphs
+            subgraphs[i] = str(expr[i])
+            
+            try:
+                # Now that we've made the most recent subgraph, we can evaluate it
+                subgraph_function = _compile_subgraph(subgraphs[i], pset)
+                #print("Subgraph function: ", subgraphs[i])
+                if subgraph_function is None:
+                    print("Culprit is function")
+                    print("Subgraphs[i]: ", subgraphs[i])
+                if any([x is None for x in input_values]):
+                    print("Culprit is input")
+                subgraph_output = subgraph_function(*input_values)
+                
+                # Update subgraphs 
+                subgraphs[i] = subgraph_output
+                #print("Subgraph output: ", subgraph_output)
+            except Exception as e:
+                print("Errored... subgraphs[i]: ", subgraphs[i])
+                print("Errored... inputs: ", input_values)
+                print("Errored... expr[i]: ", expr[i])
+                print(e)
+                exit(1)
+                
+            i -= 1
+
+        # the final result is at the root
+        if isinstance(expr[0], str):
+            return subgraphs, expr[0]
+        if isinstance(expr[0], RNCTerminal):  # only contains a single RNC, let's retrieve its value
+            return subgraphs, str(self.rnc_array[self.dc[0]])
+        return subgraphs, expr[0].format()    # only contains a normal terminal
 
     def __repr__(self):
         return super().__repr__() + ', dw_rnc_array=[' + ', '.join(str(num) for num in self.dw_rnc_array) + ']' + ', dt_rnc_array=[' + ', '.join(str(num) for num in self.dt_rnc_array) + ']' 

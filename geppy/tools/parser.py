@@ -12,9 +12,13 @@ lambda function in Python for subsequent fitness evaluation.
 import sys
 
 
-def _compile_gene(g, pset):
+def _compile_subgraph(g, pset):
     """
     Compile one gene *g* with the primitive set *pset*.
+    
+    This function, although intended to operate on an entire gene, is also
+    capable of operating on any self-contained subgraph expression.
+    
     :return: a function or an evaluated result
     """
     code = str(g)
@@ -33,14 +37,17 @@ def _compile_gene(g, pset):
 
 def compile_(individual, pset):
     """
-    Compile the individual into a Python lambda expression.
+    Compile the individual into a Python lambda expression. This can be used to
+    evaluate individuals which represent sparse feedforward neural networks, or expression
+    trees. This evaluation method does NOT handle inputs as sequences, and therefore
+    should not be used to evaluate individuals which represent recurrent neural networks.
 
     :param individual: :class:`Chromosome`, a chromosome
     :param pset: :class:`PrimitiveSet`, a primitive set
     :return: a function if the primitive set *pset* has any inputs (arguments), which can later be called with
         specific parameter values; otherwise, a numerical result obtained from evaluation.
     """
-    fs = [_compile_gene(gene, pset) for gene in individual]
+    fs = [_compile_subgraph(gene, pset) for gene in individual]
     linker = individual.linker
     if linker is None:  # return the gene itself for a monogenic one or tuple of all genes
         if len(fs) == 1:
@@ -49,4 +56,64 @@ def compile_(individual, pset):
             return lambda *x: tuple((f(*x) for f in fs))
     return lambda *x: linker(*(f(*x) for f in fs))
 
-__all__ = ['compile_']
+    
+def compute_full_output(individual, pset, input_sequence):
+    """
+    Compile the individual with the input values, computing the output of the
+    expression. Unlike `compile_`, this method does NOT provide evaluatable 
+    python code. This method is to be used with individuals which represent
+    recurrent neural networks, intended to process sequences as inputs.
+
+    :param individual: :class:`Chromosome`, a chromosome
+    :param pset: :class:`PrimitiveSet`, a primitive set
+    :param input_sequence: An iterable that represents one full input sequence. 
+        Each element from the sequence provides inputs for a given time step.
+
+    """
+    #print("Getting input_sequence: ", input_sequence)
+    hidden_state_dict = {}
+    # Initialize hidden states for all networks (genes)
+    for i, _ in enumerate(individual):
+        hidden_state_dict[i] = None
+    
+    # Iterate over all time steps in the input sequence
+    for step_inputs in input_sequence:
+        outputs = [] # This time step's outputs
+        for i, gene in enumerate(individual):
+            # (TODO Ryan) I don't think we ALWAYS want to use * syntax
+            # (NOTE Ryan) 2nd output is string representation, currently not using or tracking
+            current_states, _ = gene.compute_step_output(*step_inputs, pset=pset, hidden_state=hidden_state_dict[i])
+            outputs.append(current_states[0]) # First state is current output
+            hidden_state_dict[i] = current_states # Hidden state for next time step is the current state
+    
+    linker = individual.linker
+    if linker is None:
+        if len(outputs) == 1:
+            return outputs[0]
+        else:
+            tuple((out) for out in outputs)
+    # Return linker output using the last step's outputs of genes
+    return linker(*outputs)
+
+def compile_recurrent_(individual, pset):
+    """
+    TODO DOCUMENTATION
+
+    Parameters
+    ----------
+    individual : TYPE
+        DESCRIPTION.
+    pset : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    TYPE
+        DESCRIPTION.
+
+    """
+    return lambda sequence: compute_full_output(individual, pset, sequence)
+
+
+
+__all__ = ['compile_', 'compile_recurrent_']

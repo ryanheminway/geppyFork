@@ -6,9 +6,11 @@ This module :mod:`generator` provides functionality to generate a genome for a g
 terminals randomly from a given primitive set to form a linear form gene expression.
 """
 import random
+from ..core.symbol import NN_Function_With_Jumpers
 from ._util import _choose_a_terminal
 
 # TODO (Ryan Heminway) added guided here
+# TODO May want to make this compatible with any type of Function, not just NN_
 def generate_genome(pset, head_length, guided=False):
     """
     Generate a genome with the given primitive set *pset* and the specified head domain length *head_length*.
@@ -29,8 +31,11 @@ def generate_genome(pset, head_length, guided=False):
     expr = [None] * (h + t)
     # head part: initialized with both functions and terminals
     for i in range(h):
-        if guided or random.random() < 0.5:
-            expr[i] = random.choice(functions)
+        prob = random.random()
+        if guided or prob < 0.5:
+            # Get a new instance, for safety when handling jumpers
+            chosen_function = random.choice(functions)
+            expr[i] = NN_Function_With_Jumpers(name=chosen_function.name, arity=chosen_function.arity)
         else:
             expr[i] = _choose_a_terminal(terminals)
     # tail part: only terminals are allowed
